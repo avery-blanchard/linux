@@ -26,6 +26,7 @@ static struct ima_template_desc builtin_templates[] = {
 	{.name = "ima-modsig", .fmt = "d-ng|n-ng|sig|d-modsig|modsig"},
 	{.name = "evm-sig",
 	 .fmt = "d-ng|n-ng|evmsig|xattrnames|xattrlengths|xattrvalues|iuid|igid|imode"},
+	{.name = "ima-image", .fmt = "d-ng|n-ng"}, /* enable signature checking in the future */
 	{.name = "", .fmt = ""},	/* placeholder for a custom format */
 };
 
@@ -289,6 +290,15 @@ struct ima_template_desc *ima_template_desc_buf(void)
 	}
 	return ima_buf_template;
 }
+struct ima_template_desc *ima_template_desc_image(void)
+{
+        if (!ima_bpf_template) {
+                ima_init_template_list();
+                ima_image_template =
+                    lookup_template_desc("ima-image");
+        }
+        return ima_image_template;
+}
 
 int __init ima_init_template(void)
 {
@@ -318,6 +328,20 @@ int __init ima_init_template(void)
 		pr_err("template %s init failed, result: %d\n",
 		       (strlen(template->name) ?
 		       template->name : template->fmt), result);
+
+	template = ima_template_desc_image();
+        if (!template) {
+                pr_err("Failed to get ima-image template\n");
+                return -EINVAL;
+        }
+
+        result = template_desc_init_fields(template->fmt,
+                                           &(template->fields),
+                                           &(template->num_fields));
+        if (result < 0)
+                pr_err("template %s init failed, result: %d\n",
+                       (strlen(template->name) ?
+                       template->name : template->fmt), result);
 
 	return result;
 }
