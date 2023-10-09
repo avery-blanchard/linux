@@ -3439,7 +3439,20 @@ void security_task_to_inode(struct task_struct *p, struct inode *inode)
 {
 	call_void_hook(task_to_inode, p, inode);
 }
+/*
+ * security_task_unshare() - 
+ *
+ */
+int security_task_unshare(long flags, struct fs_struct *fs, 
+                struct cred *cred, struct nsproxy *nsproxy) 
+{
+	int ret;
+	ret = call_int_hook(task_unshare, 0, flags, fs, cred, nsproxy);
 
+	if (ret < 0)
+		return ret;
+	return ima_task_unshare(current, flags, fs, cred, nsproxy);
+}
 /**
  * security_create_user_ns() - Check if creating a new userns is allowed
  * @cred: prepared creds

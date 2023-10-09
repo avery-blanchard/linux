@@ -202,8 +202,8 @@ void ima_file_free(struct file *file)
 
 	ima_check_last_writer(iint, inode, file);
 }
-static int process_image_measurement(struct task_struct *task, struct nsproxy *nsproxy,
-		struct fs_struct *fs, enum ima_hooks func, int flags) 
+static int process_image_measurement(struct task_struct *task, long flags, struct fs_struct *fs,
+                                    struct cred *cred, struct nsproxy *nsproxy)
 {
 	int ns, hash_algo, length, ret, action = 0;
 	struct ima_template_entry *entry = NULL;
@@ -1150,6 +1150,11 @@ int ima_measure_critical_data(const char *event_label,
 }
 EXPORT_SYMBOL_GPL(ima_measure_critical_data);
 
+int ima_task_unshare(struct task_struct *task, long flags, struct fs_struct *fs,
+                                    struct cred *cred, struct nsproxy *nsproxy)
+{
+	return process_image_measurement(task, flags, fs, cred, nsproxy);
+}
 static int __init init_ima(void)
 {
 	int error;

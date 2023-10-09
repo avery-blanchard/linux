@@ -404,6 +404,8 @@ int security_file_open(struct file *file);
 int security_file_truncate(struct file *file);
 int security_task_alloc(struct task_struct *task, unsigned long clone_flags);
 void security_task_free(struct task_struct *task);
+int security_task_unshare(long flags, struct fs_struct *fs, struct cred *cred,
+	       	struct nsproxy *nsproxy);
 int security_cred_alloc_blank(struct cred *cred, gfp_t gfp);
 void security_cred_free(struct cred *cred);
 int security_prepare_creds(struct cred *new, const struct cred *old, gfp_t gfp);
