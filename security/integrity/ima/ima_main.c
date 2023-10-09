@@ -202,7 +202,82 @@ void ima_file_free(struct file *file)
 
 	ima_check_last_writer(iint, inode, file);
 }
+static int process_image_measurement(struct task_struct *task, struct nsproxy *nsproxy,
+		struct fs_struct *fs, enum ima_hooks func, int flags) 
+{
+	int ns, hash_algo, length, ret, action = 0;
+	struct ima_template_entry *entry = NULL;
+	struct integrity_iint_cache iint = {};
+	struct ima_template_desc *template = NULL;
+	struct ima_max_digest_data hash;
+	static const char op[] = "image-measure";
+	struct dentry *root;
+	struct inode *inode;
+	char *ns_id;
+	char *root_hash;
+	u64 i_version;
 
+	action = ima_get_action(flags);
+
+	/* Check flags against IMA policy to determine measurement */
+	if (action == 0)
+		return 0;
+
+	/* Measure image */
+	if (action & IMA_MEASURE) {
+		#ifdef CONFIG_FS_VERITY
+		#endif
+		root = fs->pwd.dentry->d_parent;
+		inode = root->d_inode;
+		i_version = inode_query_iversion(inode);
+		
+		memset(&iint, 0, sizeof(iint));
+		memset(&hash, 0, sizeof(hash));
+
+		hash_algo = ima_measure_image_fs(root, root_hash);
+
+		hash.hdr.length = hash_digest_size[hash_algo];
+		hash.hdr.algo = hash_algo;
+		memset(&hash.digest, 0, sizeof(hash.digest));
+	
+		length = sizeof(hash.hdr) + hash.hdr.length;
+
+
+		iint.version = i_version;
+        	iint.inode = inode;
+        	iint.ima_hash = &hash.hdr;
+        	iint.ima_hash->algo =  hash_algo;
+        	iint.ima_hash->length = hash_digest_size[hash_algo];
+
+		memcpy(&hash.hdr.digest, &hash.digest, sizeof(&hash.digest));
+        	memcpy(iint.ima_hash, &hash, length);
+
+		sprintf(task->nsproxy->cgroup_ns->ns.inum, "%u", ns);
+		
+		struct ima_event_data event_data = { .iint = &iint,
+			                     .filename = ns_id
+					   };
+
+		template = ima_template_desc_image();
+
+		ret = ima_alloc_init_template(&event_data, &entry, template);
+		if (ret < 0) {
+			return 0;
+		}
+
+		ret = ima_store_template(entry, 0, NULL,
+				    ns_id, CONFIG_IMA_MEASURE_PCR_IDX);
+		if ((!ret || ret == -EEXIST)) {
+        	        iint.flags |= IMA_MEASURED;
+        	        iint.measured_pcrs |= (0x1 << CONFIG_IMA_MEASURE_PCR_IDX);
+			ima_free_template_entry(entry);
+			return 0;
+			
+		}
+
+	return 0;
+
+}
 static int process_measurement(struct file *file, const struct cred *cred,
 			       u32 secid, char *buf, loff_t size, int mask,
 			       enum ima_hooks func)
