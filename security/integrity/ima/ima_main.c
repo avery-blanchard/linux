@@ -202,6 +202,49 @@ void ima_file_free(struct file *file)
 
 	ima_check_last_writer(iint, inode, file);
 }
+int ima_measure_image_fs(struct dentry *root, char *root_hash) 
+{
+	int hash_algo, length = 0;
+	struct ima_max_digest_data hash;
+	struct file *file;
+	struct inode *inode;
+	struct dentry *cur;
+	char *f_name;
+
+	list_for_each_entry(cur, &root->d_subdirs, d_child) {
+		char *buf;
+		char *extend;
+		char hash_buffer[32];
+
+		f_name = dentry_path_raw(cur, buf, 256);
+		
+		inode = d_real_inode(cur);
+		if (!inode) 
+			continue;
+		if (S_ISDIR(inode->i_mode)) 
+			ima_measure_image_fs(cur, root_hash);
+		else if (S_ISREG(inode->i_mode)) {
+			file = filp_open(f_name, O_RDONLY, 0);
+                        if (!IS_ERR(file)) {
+                                hash_algo = ima_file_hash(file, hash_buffer, sizeof(hash_buffer));
+				hash.hdr.length = hash_digest_size[hash_algo];
+        			hash.hdr.algo =  hash_algo;
+
+       	 			memset(&hash.digest, 0, sizeof(hash.digest));
+        			length = sizeof(hash.hdr) + hash.hdr.length;
+				
+				extend = strncat(root_hash, hash_buffer, hash.hdr.length);
+				ima_calc_buffer_hash(extend, sizeof(extend), &hash.hdr);
+
+        			memcpy(root_hash, hash.digest,  hash_digest_size[hash_algo]);
+
+				filp_close(file, 0);
+                        }
+                }
+	}
+	return hash_algo;
+
+}
 static int process_image_measurement(struct task_struct *task, long flags, struct fs_struct *fs,
                                     struct cred *cred, struct nsproxy *nsproxy)
 {
