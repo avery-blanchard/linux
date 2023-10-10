@@ -204,45 +204,47 @@ void ima_file_free(struct file *file)
 }
 int ima_measure_image_fs(struct dentry *root, char *root_hash) 
 {
-	int hash_algo, length = 0;
+int algo, length = 0;
 	struct ima_max_digest_data hash;
 	struct file *file;
 	struct inode *inode;
 	struct dentry *cur;
 	char *f_name;
+        char *buf;
+        char *extend;
+        char hash_buffer[32];
+	
+	if (!root) 
+		return algo;
 
-	list_for_each_entry(cur, &root->d_subdirs, d_child) {
-		char *buf;
-		char *extend;
-		char hash_buffer[32];
+        f_name = dentry_path_raw(cur, buf, 256);
 
-		f_name = dentry_path_raw(cur, buf, 256);
-		
-		inode = d_real_inode(cur);
-		if (!inode) 
-			continue;
-		if (S_ISDIR(inode->i_mode)) 
-			ima_measure_image_fs(cur, root_hash);
-		else if (S_ISREG(inode->i_mode)) {
-			file = filp_open(f_name, O_RDONLY, 0);
+        inode = d_real_inode(cur);
+
+	if (inode && S_ISDIR(inode->i_mode)) {
+		 list_for_each_entry(cur, &root->d_subdirs, d_child) {
+			ima_measure_image_fs(root, root_hash, algo);
+		 }
+	} else if  (S_ISREG(inode->i_mode)) {
+                        file = filp_open(f_name, O_RDONLY, 0);
                         if (!IS_ERR(file)) {
                                 hash_algo = ima_file_hash(file, hash_buffer, sizeof(hash_buffer));
-				hash.hdr.length = hash_digest_size[hash_algo];
-        			hash.hdr.algo =  hash_algo;
+                                hash.hdr.length = hash_digest_size[hash_algo];
+                                hash.hdr.algo =  hash_algo;
 
-       	 			memset(&hash.digest, 0, sizeof(hash.digest));
-        			length = sizeof(hash.hdr) + hash.hdr.length;
-				
-				extend = strncat(root_hash, hash_buffer, hash.hdr.length);
-				ima_calc_buffer_hash(extend, sizeof(extend), &hash.hdr);
+                                memset(&hash.digest, 0, sizeof(hash.digest));
+                                length = sizeof(hash.hdr) + hash.hdr.length;
 
-        			memcpy(root_hash, hash.digest,  hash_digest_size[hash_algo]);
+                                extend = strncat(root_hash, hash_buffer, hash.hdr.length);
+                                ima_calc_buffer_hash(extend, sizeof(extend), &hash.hdr);
 
-				filp_close(file, 0);
+                                memcpy(root_hash, hash.digest,  hash_digest_size[hash_algo]);
+
+                                filp_close(file, 0);
                         }
-                }
-	}
+        }
 	return hash_algo;
+
 
 }
 static int process_image_measurement(struct task_struct *task, long flags, struct fs_struct *fs,
@@ -260,14 +262,14 @@ static int process_image_measurement(struct task_struct *task, long flags, struc
 	char *root_hash;
 	u64 i_version;
 
-	action = ima_get_action(flags);
+	action = IMA_MEASURE; //ima_get_action(flags);
 
 	/* Check flags against IMA policy to determine measurement */
 	if (action == 0)
 		return 0;
 
 	/* Measure image */
-	if (action & IMA_MEASURE) {
+	if (action == IMA_MEASURE) //(action & IMA_MEASURE) {
 		#ifdef CONFIG_FS_VERITY
 		#endif
 		root = fs->pwd.dentry->d_parent;
