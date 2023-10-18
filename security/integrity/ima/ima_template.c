@@ -82,6 +82,7 @@ static const struct ima_template_field supported_fields[] = {
 
 static struct ima_template_desc *ima_template;
 static struct ima_template_desc *ima_buf_template;
+static struct ima_template_desc *ima_image_template;
 
 /**
  * ima_template_has_modsig - Check whether template has modsig-related fields.
@@ -292,10 +293,9 @@ struct ima_template_desc *ima_template_desc_buf(void)
 }
 struct ima_template_desc *ima_template_desc_image(void)
 {
-        if (!ima_bpf_template) {
+        if (!ima_image_template) {
                 ima_init_template_list();
-                ima_image_template =
-                    lookup_template_desc("ima-image");
+                ima_image_template = lookup_template_desc("ima-image");
         }
         return ima_image_template;
 }

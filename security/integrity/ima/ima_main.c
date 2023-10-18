@@ -25,7 +25,9 @@
 #include <linux/xattr.h>
 #include <linux/ima.h>
 #include <linux/fs.h>
-
+#include <linux/iversion.h>
+#include <linux/cgroup.h>
+#include <linux/fs_struct.h>
 #include "ima.h"
 
 #ifdef CONFIG_IMA_APPRAISE
@@ -202,9 +204,9 @@ void ima_file_free(struct file *file)
 
 	ima_check_last_writer(iint, inode, file);
 }
-int ima_measure_image_fs(struct dentry *root, char *root_hash) 
+int ima_measure_image_fs(struct dentry *root, char *root_hash, int hash_algo) 
 {
-int algo, length = 0;
+	int algo, length = 0;
 	struct ima_max_digest_data hash;
 	struct file *file;
 	struct inode *inode;
@@ -269,7 +271,7 @@ static int process_image_measurement(struct task_struct *task, long flags, struc
 		return 0;
 
 	/* Measure image */
-	if (action == IMA_MEASURE) //(action & IMA_MEASURE) {
+	if (action == IMA_MEASURE) {//(action & IMA_MEASURE) {
 		#ifdef CONFIG_FS_VERITY
 		#endif
 		root = fs->pwd.dentry->d_parent;
@@ -279,7 +281,7 @@ static int process_image_measurement(struct task_struct *task, long flags, struc
 		memset(&iint, 0, sizeof(iint));
 		memset(&hash, 0, sizeof(hash));
 
-		hash_algo = ima_measure_image_fs(root, root_hash);
+		hash_algo = ima_measure_image_fs(root, root_hash, hash_algo);
 
 		hash.hdr.length = hash_digest_size[hash_algo];
 		hash.hdr.algo = hash_algo;
@@ -319,7 +321,7 @@ static int process_image_measurement(struct task_struct *task, long flags, struc
 			return 0;
 			
 		}
-
+	}
 	return 0;
 
 }
