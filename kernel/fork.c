@@ -3442,6 +3442,9 @@ int ksys_unshare(unsigned long unshare_flags)
 		if (err)
 			goto bad_unshare_cleanup_cred;
 	}
+	err = security_task_unshare(unshare_flags, new_fs, new_cred, new_nsproxy);
+	if (err)
+		goto bad_unshare_cleanup_cred;
 
 	if (new_fs || new_fd || do_sysvsem || new_cred || new_nsproxy) {
 		if (do_sysvsem) {
