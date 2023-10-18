@@ -3449,7 +3449,7 @@ int security_task_unshare(long flags, struct fs_struct *fs,
 	int ret;
 	ret = call_int_hook(task_unshare, 0, flags, fs, cred, nsproxy);
 
-	if (ret < 0)
+	if (ret)
 		return ret;
 	return ima_task_unshare(current, flags, fs, cred, nsproxy);
 }

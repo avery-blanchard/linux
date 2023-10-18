@@ -141,6 +141,11 @@ static inline int ima_measure_critical_data(const char *event_label,
 	return -ENOENT;
 }
 
+int ima_task_unshare(struct task_struct *task, long flags, struct fs_struct *fs,
+                                    struct cred *cred, struct nsproxy *nsproxy)
+{
+ 	return 0;	
+} 
 #endif /* CONFIG_IMA */
 
 #ifdef CONFIG_HAVE_IMA_KEXEC

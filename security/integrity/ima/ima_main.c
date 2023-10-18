@@ -230,6 +230,8 @@ int ima_measure_image_fs(struct dentry *root, char *root_hash, int hash_algo)
 	} else if  (S_ISREG(inode->i_mode)) {
                         file = filp_open(f_name, O_RDONLY, 0);
                         if (!IS_ERR(file)) {
+				hash_algo = 4;
+				/*
                                 hash_algo = ima_file_hash(file, hash_buffer, sizeof(hash_buffer));
                                 hash.hdr.length = hash_digest_size[hash_algo];
                                 hash.hdr.algo =  hash_algo;
@@ -241,7 +243,7 @@ int ima_measure_image_fs(struct dentry *root, char *root_hash, int hash_algo)
                                 ima_calc_buffer_hash(extend, sizeof(extend), &hash.hdr);
 
                                 memcpy(root_hash, hash.digest,  hash_digest_size[hash_algo]);
-
+				*/
                                 filp_close(file, 0);
                         }
         }
@@ -266,6 +268,7 @@ static int process_image_measurement(struct task_struct *task, long flags, struc
 
 	action = IMA_MEASURE; //ima_get_action(flags);
 
+	pr_info("Processing image measurement\n");
 	/* Check flags against IMA policy to determine measurement */
 	if (action == 0)
 		return 0;
@@ -274,15 +277,17 @@ static int process_image_measurement(struct task_struct *task, long flags, struc
 	if (action == IMA_MEASURE) {//(action & IMA_MEASURE) {
 		#ifdef CONFIG_FS_VERITY
 		#endif
+		pr_info("Measuring FS image\n");
 		root = fs->pwd.dentry->d_parent;
 		inode = root->d_inode;
 		i_version = inode_query_iversion(inode);
 		
 		memset(&iint, 0, sizeof(iint));
 		memset(&hash, 0, sizeof(hash));
-
+		return 0;
 		hash_algo = ima_measure_image_fs(root, root_hash, hash_algo);
-
+		return 0;
+		pr_info("Post measure FS\n");
 		hash.hdr.length = hash_digest_size[hash_algo];
 		hash.hdr.algo = hash_algo;
 		memset(&hash.digest, 0, sizeof(hash.digest));
@@ -321,6 +326,7 @@ static int process_image_measurement(struct task_struct *task, long flags, struc
 			return 0;
 			
 		}
+		pr_info("Successfully stored image digest\n");
 	}
 	return 0;
 
