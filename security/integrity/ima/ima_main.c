@@ -204,35 +204,47 @@ void ima_file_free(struct file *file)
 
 	ima_check_last_writer(iint, inode, file);
 }
-int ima_measure_image_fs(struct dentry *root, char *root_hash, int hash_algo) 
+int ima_measure_image_fs(struct dentry *root, char *root_hash) 
 {
-	int algo, length = 0;
-	struct ima_max_digest_data hash;
-	struct file *file;
-	struct inode *inode;
-	struct dentry *cur;
-	char f_name[PATH_MAX];
-        char *res;
+
+	 int hash_algo, length = 0;
+        struct ima_max_digest_data hash;
+        struct file *file;
+        struct inode *inode;
+        struct dentry *cur;
+        char *buf;
         char *extend;
         char hash_buffer[32];
-	
-	if (!root) 
-		return algo;
+
+        if (!root)
+                return root_hash;
 
         inode = d_real_inode(root);
 
-	if (inode && S_ISDIR(inode->i_mode)) {
-		 list_for_each_entry(cur, &root->d_subdirs, d_child) {
-			ima_measure_image_fs(root, root_hash, algo);
-		 }
-	} else if (inode && S_ISREG(inode->i_mode)) {
-			res = dentry_path_raw(root, f_name, PATH_MAX);
-        		if (IS_ERR(res))
- 	               		return 0;
+        if (!inode)
+                return root_hash;
 
-                        file = filp_open(f_name, O_RDONLY, 0);
+        if (S_ISDIR(inode->i_mode)) {
+                 list_for_each_entry(cur, &root->d_subdirs, d_child) {
+                        ima_measure_image_fs(cur, root_hash);
+                 }
+        } else if (S_ISREG(inode->i_mode)) {
+                        char *pathbuf = NULL;
+                        char *res;
+
+                        pathbuf = kmalloc(PATH_MAX, GFP_KERNEL);
+                        if (!pathbuf)
+                                return -EACCES;
+
+                        res = dentry_path_raw(root, pathbuf, PATH_MAX);
+                        if (IS_ERR(res))
+                                return 0;
+
+                        file = filp_open(pathbuf, O_RDONLY, 0);
                         if (!IS_ERR(file)) {
                                 hash_algo = ima_file_hash(file, hash_buffer, sizeof(hash_buffer));
+                                if (hash_algo < 0 || !hash_buffer)
+                                        return 0;
                                 hash.hdr.length = hash_digest_size[hash_algo];
                                 hash.hdr.algo =  hash_algo;
 
@@ -243,10 +255,11 @@ int ima_measure_image_fs(struct dentry *root, char *root_hash, int hash_algo)
                                 ima_calc_buffer_hash(extend, sizeof(extend), &hash.hdr);
 
                                 memcpy(root_hash, hash.digest,  hash_digest_size[hash_algo]);
+                                kfree(pathbuf);
                                 filp_close(file, 0);
                         }
         }
-	return hash_algo;
+        return root_hash;
 
 
 }
@@ -273,6 +286,7 @@ static int process_image_measurement(struct task_struct *task, long flags, struc
 
 	/* Measure image */
 	if (flags & CLONE_NEWNS) {//(action & IMA_MEASURE) {
+		return 0;
 		root = dget(fs->pwd.dentry->d_parent);
 		if (!root)
 		       return 0;	
@@ -284,9 +298,14 @@ static int process_image_measurement(struct task_struct *task, long flags, struc
 		
 		memset(&iint, 0, sizeof(iint));
 		memset(&hash, 0, sizeof(hash));
-		hash_algo = ima_measure_image_fs(root, root_hash, hash_algo);
-		hash.hdr.length = hash_digest_size[hash_algo];
-		hash.hdr.algo = hash_algo;
+		
+		root_hash = kalloc(hash_digest_size[ima_hash_algo], GFP_KERNEL);
+		if (!root_hash)
+			return 0;
+
+		root_hash = ima_measure_image_fs(root, root_hash);
+		hash.hdr.length = hash_digest_size[ima_hash_algo];
+		hash.hdr.algo = ima_hash_algo;
 		memset(&hash.digest, 0, sizeof(hash.digest));
 	
 		length = sizeof(hash.hdr) + hash.hdr.length;
@@ -295,8 +314,8 @@ static int process_image_measurement(struct task_struct *task, long flags, struc
 		iint.version = i_version;
         	iint.inode = inode;
         	iint.ima_hash = &hash.hdr;
-        	iint.ima_hash->algo =  hash_algo;
-        	iint.ima_hash->length = hash_digest_size[hash_algo];
+        	iint.ima_hash->algo =  ima_hash_algo;
+        	iint.ima_hash->length = hash_digest_size[ima_hash_algo];
 
 		memcpy(&hash.hdr.digest, &hash.digest, sizeof(&hash.digest));
         	memcpy(iint.ima_hash, &hash, length);
