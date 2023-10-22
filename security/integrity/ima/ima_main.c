@@ -299,7 +299,7 @@ static int process_image_measurement(struct task_struct *task, long flags, struc
 		memset(&iint, 0, sizeof(iint));
 		memset(&hash, 0, sizeof(hash));
 		
-		root_hash = kalloc(hash_digest_size[ima_hash_algo], GFP_KERNEL);
+		root_hash = kmalloc(hash_digest_size[ima_hash_algo], GFP_KERNEL);
 		if (!root_hash)
 			return 0;
 
