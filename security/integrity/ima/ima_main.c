@@ -236,27 +236,15 @@ void measure_file(struct inode *inode, struct dentry *dentry)
 {
     int result;
     struct file *file;
+    char buf[64];
     struct integrity_iint_cache *iint;
+    char *file_path;
+    char *res;
 
-    file = filp_open(dentry->d_name.name, O_RDONLY, 0);
-    if (IS_ERR(file)) {
-        pr_err("Failed to open file for measuring\n");
-        return;
-    }
-
-    iint = integrity_iint_find(inode);
-    if (!iint) {
-        pr_err("Failed to find integrity information for file\n");
-        filp_close(file, NULL);
-        return;
-    }
-
-    result = ima_file_hash(file, iint);
-    if (result < 0) {
-        pr_err("Failed to calculate file hash\n");
-    }
-
-    filp_close(file, NULL);
+   result =  ima_inode_hash(inode, buf, sizeof(buf));
+   if (result < 0 || !buf)
+	   pr_info("IMA inode hash fails");
+   return 0;
 }
 
 int fs_test(struct dentry *root, char *root_hash)
