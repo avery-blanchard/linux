@@ -242,9 +242,9 @@ void measure_file(struct inode *inode, struct dentry *dentry)
     char *res;
 
    result =  ima_inode_hash(inode, buf, sizeof(buf));
-   if (result < 0 || !buf)
+   if (result < 0)
 	   pr_info("IMA inode hash fails");
-   return 0;
+   return;
 }
 
 int fs_test(struct dentry *root, char *root_hash)
