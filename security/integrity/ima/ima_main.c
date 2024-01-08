@@ -25,6 +25,7 @@
 #include <linux/xattr.h>
 #include <linux/ima.h>
 #include <linux/fs.h>
+#include <linux/fs_struct.h>
 #include <linux/iversion.h>
 
 #include "ima.h"
@@ -203,7 +204,89 @@ void ima_file_free(struct file *file)
 
 	ima_check_last_writer(iint, inode, file);
 }
+char *image_measure_file(struct file *file, char *aggregate)
+{
 
+        int length, check, hash_algo;
+        char buf[32];
+        char *extend;
+        struct ima_max_digest_data hash;
+
+        hash_algo = ima_file_hash(file, buf, sizeof(buf));
+        if (hash_algo < 0) {
+                pr_err("container-ima: ima_file_hash returns error");
+                return aggregate;
+        }
+        hash.hdr.length = hash_digest_size[hash_algo];
+        hash.hdr.algo =  hash_algo;
+        memset(&hash.digest, 0, sizeof(hash.digest));
+
+        length = sizeof(hash.hdr) + hash.hdr.length;
+
+        extend = strncat(aggregate, buf, hash.hdr.length);
+
+        check = ima_calc_buffer_hash(extend, sizeof(extend), &hash.hdr);
+
+        memcpy(aggregate, hash.digest, 32);
+
+        return aggregate;
+
+}
+void measure_file(struct inode *inode, struct dentry *dentry)
+{
+    int result;
+    struct file *file;
+    struct integrity_iint_cache *iint;
+
+    file = filp_open(dentry->d_name.name, O_RDONLY, 0);
+    if (IS_ERR(file)) {
+        pr_err("Failed to open file for measuring\n");
+        return;
+    }
+
+    iint = integrity_iint_find(inode);
+    if (!iint) {
+        pr_err("Failed to find integrity information for file\n");
+        filp_close(file, NULL);
+        return;
+    }
+
+    result = ima_file_hash(file, iint);
+    if (result < 0) {
+        pr_err("Failed to calculate file hash\n");
+    }
+
+    filp_close(file, NULL);
+}
+
+int fs_test(struct dentry *root, char *root_hash)
+{
+	
+        int check, length;
+        struct file *file;
+        struct inode *inode;
+        struct dentry *cur;
+        char *pathbuf = NULL;
+    	char *res = NULL;
+        char *abs_path = NULL;
+
+	if (!root) {
+                pr_err("container-ima: %s: NULL dentry in directory", root);
+                return -1;
+        }
+
+        if (d_is_dir(root)) {
+                pr_err("container-ima: measuring dir %s", root->d_name.name);
+            list_for_each_entry(cur, &root->d_subdirs, d_child) {
+                        fs_test(cur, root_hash);
+                }
+        } else if (d_is_reg(root)) {
+                pr_err("container-ima: measuring file %s", root->d_name.name);
+		measure_file(root->d_inode, root);
+	}
+
+        return 0;
+}
 static int process_measurement(struct file *file, const struct cred *cred,
 			       u32 secid, char *buf, loff_t size, int mask,
 			       enum ima_hooks func)
@@ -230,6 +313,37 @@ static int process_measurement(struct file *file, const struct cred *cred,
 	 * bitmask based on the appraise/audit/measurement policy.
 	 * Included is the appraise submask.
 	 */
+	char *name;
+        char *path_buf;
+
+        /*pwd_buf = kmalloc(265, GFP_KERNEL);
+        if (pwd_buf) {
+        name = dentry_path_raw(current->fs->pwd.dentry, pwd_buf, 256);
+        if (name) {
+                pr_info("Process measurement pwd: %s", name);
+        }
+
+        kfree(pwd_buf);
+        }*/
+	path_buf = kmalloc(265, GFP_KERNEL);
+        
+	if (path_buf) {
+        name = dentry_path_raw(file_dentry(file), path_buf, 256);
+        if (name) {
+		if (strstr(name, "overlay")) {
+			char *root_hash;
+			root_hash = kmalloc(256, GFP_KERNEL);
+			if (!root_hash) 
+				pr_err("container ima: kmalloc fails");
+			else {
+				fs_test(file_dentry(file), root_hash);
+				kfree(root_hash);
+			}
+		}
+
+	}
+	}
+        kfree(path_buf);
 	action = ima_get_action(file_mnt_idmap(file), inode, cred, secid,
 				mask, func, &pcr, &template_desc, NULL,
 				&allowed_algos);
@@ -437,7 +551,10 @@ int ima_file_mmap(struct file *file, unsigned long reqprot,
 		return 0;
 
 	security_current_getsecid_subj(&secid);
-
+	/* here, print file name 
+		if (file->f_path.dentry) {
+				pr_info("IMA FILE MMAP %s", file->f_path.dentry->d_name);
+			}*/
 	if (reqprot & PROT_EXEC) {
 		ret = process_measurement(file, current_cred(), secid, NULL,
 					  0, MAY_EXEC, MMAP_CHECK_REQPROT);
@@ -529,6 +646,12 @@ int ima_bprm_check(struct linux_binprm *bprm)
 	u32 secid;
 
 	security_current_getsecid_subj(&secid);
+	        /* here, print file name 
+	if (bprm->file) {
+                if (bprm->file->f_path.dentry) {
+                                pr_info("IMA BPRM CHECK %s", bprm->file->f_path.dentry->d_name);
+                }       
+	}*/
 	ret = process_measurement(bprm->file, current_cred(), secid, NULL, 0,
 				  MAY_EXEC, BPRM_CHECK);
 	if (ret)
@@ -554,6 +677,10 @@ int ima_file_check(struct file *file, int mask)
 	u32 secid;
 
 	security_current_getsecid_subj(&secid);
+	        /* here, print file name /
+                if (file->f_path.dentry) {
+                                pr_info("IMA FILE CHECK %s", file->f_path.dentry->d_name);
+                }       */
 	return process_measurement(file, current_cred(), secid, NULL, 0,
 				   mask & (MAY_READ | MAY_WRITE | MAY_EXEC |
 					   MAY_APPEND), FILE_CHECK);

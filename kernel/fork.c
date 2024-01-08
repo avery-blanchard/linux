@@ -3482,6 +3482,19 @@ int ksys_unshare(unsigned long unshare_flags)
 		}
 	}
 
+	
+        char *name;
+        char *buf;
+
+	buf = kmalloc(265, GFP_KERNEL);
+	if (buf) {
+        name = dentry_path_raw(current->fs->pwd.dentry, buf, 256);
+        if (name) {
+        	pr_info("Unshare pwd: %s", name);
+	}
+
+	kfree(buf);
+	}
 	perf_event_namespaces(current);
 
 bad_unshare_cleanup_cred:
