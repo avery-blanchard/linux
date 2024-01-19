@@ -238,18 +238,23 @@ static int process_measurement(struct file *file, const struct cred *cred,
 	if (path_buf) {
           name = dentry_path_raw(file_dentry(file), path_buf, 256);
       	  if (name) {
+		pr_info("Checking %s", name);
 		if (strstr(name, "/var/lib/docker/image/overlay2/imagedb/content/sha256/") || strstr(name, "/var/lib/containers/storage/overlay-images/")){
 			 pr_info("Measuring %s", name);
 			 if (file) {
 				 pr_info("File struct is not NULL");
+				 char buf[64];
+				 int test;
+				 test = ima_file_hash(file, buf, sizeof(buf));
+				 pr_info("%s:%s", buf, name);
 				 action |= IMA_MEASURE | IMA_HASH;
 				 action &= ima_policy_flag;
+				 violation_check = false;
 			}
 		}
 	   }
 	}
         kfree(path_buf);
-	if (!action) {
 	action = ima_get_action(file_mnt_idmap(file), inode, cred, secid,
 				mask, func, &pcr, &template_desc, NULL,
 				&allowed_algos);
@@ -263,7 +268,6 @@ static int process_measurement(struct file *file, const struct cred *cred,
 	/*  Is the appraise rule hook specific?  */
 	if (action & IMA_FILE_APPRAISE)
 		func = FILE_CHECK;
-	}
 	inode_lock(inode);
 
 	if (action) {
