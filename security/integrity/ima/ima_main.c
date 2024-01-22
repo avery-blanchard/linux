@@ -235,11 +235,34 @@ static int process_measurement(struct file *file, const struct cred *cred,
 
 	pathname = ima_d_path(&file->f_path, &pathbuf, filename);
 	if (strstr(pathname, "container") || strstr(pathname, "manifest") || strstr(pathname, "layer")) {
-		char list[256];
+		char name, list, buf; 
 		ssize_t list_size;
-		list_size = vfs_listxattr(file->f-dentry, list, size_of(list));
-	       if (list_size > 0)
-	       		pr_infor("Xattrs for %s,: %s", pathname, list);	       
+		size_t slen;
+
+		list_size = vfs_listxattr(file->dentry, NULL, 0);
+		if (list_size >= 0) {
+	
+
+		buf = kvzalloc(list_size, GFP_KERNEL);
+		if (buf) {
+
+		list_size = vfs_listxattr(old, buf, list_size);
+		if (list_size >= 0) {
+
+		for (name = list; list_size; name += slen) {
+			slen = strnlen(name, list_size) + 1;
+			
+			list_size -= slen;
+
+			pr_info("File xattr %s: %s", pathname, name);
+
+		}
+		
+		}
+		kfree(buf);
+	}
+	}
+
 	}
 	pathname = NULL;
 	pathbuf = NULL;
