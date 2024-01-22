@@ -26,6 +26,8 @@
 #include <linux/ima.h>
 #include <linux/fs.h>
 #include <linux/iversion.h>
+#include <linux/nsproxy.h>
+#include <linux/xattr.h>
 
 #include "ima.h"
 
@@ -230,6 +232,18 @@ static int process_measurement(struct file *file, const struct cred *cred,
 	 * bitmask based on the appraise/audit/measurement policy.
 	 * Included is the appraise submask.
 	 */
+
+	pathname = ima_d_path(&file->f_path, &pathbuf, filename);
+	if (strstr(pathname, "container") || strstr(pathname, "manifest") || strstr(pathname, "layer")) {
+		char list[256];
+		ssize_t list_size;
+		list_size = vfs_listxattr(file->f-dentry, list, size_of(list));
+	       if (list_size > 0)
+	       		pr_infor("Xattrs for %s,: %s", pathname, list);	       
+	}
+	pathname = NULL;
+	pathbuf = NULL;
+
 	action = ima_get_action(file_mnt_idmap(file), inode, cred, secid,
 				mask, func, &pcr, &template_desc, NULL,
 				&allowed_algos);
