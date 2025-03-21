@@ -279,6 +279,7 @@ int template_desc_init_fields(const char *template_fmt,
 			      int *num_fields);
 struct ima_template_desc *ima_template_desc_current(void);
 struct ima_template_desc *ima_template_desc_buf(void);
+struct ima_template_desc *ima_template_desc_bpf(void);
 struct ima_template_desc *lookup_template_desc(const char *name);
 bool ima_template_has_modsig(const struct ima_template_desc *ima_template);
 int ima_restore_measurement_entry(struct ima_template_entry *entry);
@@ -327,7 +328,8 @@ static inline unsigned int ima_hash_key(u8 *digest)
 	hook(KEY_CHECK, key)				\
 	hook(CRITICAL_DATA, critical_data)		\
 	hook(SETXATTR_CHECK, setxattr_check)		\
-	hook(MAX_CHECK, none)
+	hook(MAX_CHECK, none)				\
+	hook(BPF_CHECK, none)
 
 #define __ima_hook_enumify(ENUM, str)	ENUM,
 #define __ima_stringify(arg) (#arg)
@@ -421,6 +423,7 @@ void ima_update_policy_flags(void);
 ssize_t ima_parse_add_rule(char *);
 void ima_delete_rules(void);
 int ima_check_policy(void);
+int ima_bpf_check_policy(enum bpf_prog_type, char *attach_point);
 void *ima_policy_start(struct seq_file *m, loff_t *pos);
 void *ima_policy_next(struct seq_file *m, void *v, loff_t *pos);
 void ima_policy_stop(struct seq_file *m, void *v);

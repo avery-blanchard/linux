@@ -461,3 +461,15 @@ const char *ima_d_path(const struct path *path, char **pathbuf, char *namebuf)
 
 	return pathname;
 }
+/*
+ * ima_bpf_check_policy
+ * 	Using the program type and attach point (function),
+ * 	determine if program is allowed to load based off of
+ * 	system policy
+ *
+ * TODO(avery)
+ */
+int ima_bpf_check_policy(enum bpf_prog_type, char *attach_point)
+{
+	return 1;
+}

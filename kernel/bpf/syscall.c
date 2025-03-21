@@ -40,6 +40,7 @@
 #include <linux/overflow.h>
 #include <linux/cookie.h>
 #include <linux/verification.h>
+#include <linux/ima.h>
 
 #include <net/netfilter/nf_bpf_link.h>
 #include <net/netkit.h>
@@ -3078,6 +3079,14 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	if (err < 0)
 		goto free_used_maps;
 
+	/* TODO(avery) 
+	 * Here eBPF program has been verified and is ready 
+	 * for attached, check if policy allows this
+	 */
+	err = ima_bpf_prog_load(prog, attr->prog_name, attr, uattr, uattr_size);
+	if (err < 0)
+		goto free_used_maps;
+	
 	prog = bpf_prog_select_runtime(prog, &err);
 	if (err < 0)
 		goto free_used_maps;

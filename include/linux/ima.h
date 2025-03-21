@@ -24,6 +24,9 @@ extern int ima_measure_critical_data(const char *event_label,
 				     const void *buf, size_t buf_len,
 				     bool hash, u8 *digest, size_t digest_len);
 
+extern int ima_bpf_prog_load(struct bpf_prog *prog, char *id, 
+			     union bpf_attr *attr, bpfptr_t uattr, 
+			     __u32 uattr_size);
 #ifdef CONFIG_IMA_APPRAISE_BOOTPARAM
 extern void ima_appraise_parse_cmdline(void);
 #else
@@ -63,7 +66,12 @@ static inline int ima_measure_critical_data(const char *event_label,
 {
 	return -ENOENT;
 }
-
+static inline int ima_bpf_prog_load(struct bpf_prog *prog, 
+				    char *id, union bpf_attr *attr, 
+				    bpfptr_t uattr, __u32 uattr_size)
+{
+	return 0;
+}
 #endif /* CONFIG_IMA */
 
 #ifdef CONFIG_HAVE_IMA_KEXEC

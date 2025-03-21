@@ -26,6 +26,7 @@ static struct ima_template_desc builtin_templates[] = {
 	{.name = "ima-modsig", .fmt = "d-ng|n-ng|sig|d-modsig|modsig"},
 	{.name = "evm-sig",
 	 .fmt = "d-ng|n-ng|evmsig|xattrnames|xattrlengths|xattrvalues|iuid|igid|imode"},
+	{.name = "ima-bpf", .fmt = "d-ng|n-ng"},
 	{.name = "", .fmt = ""},	/* placeholder for a custom format */
 };
 
@@ -81,6 +82,7 @@ static const struct ima_template_field supported_fields[] = {
 
 static struct ima_template_desc *ima_template;
 static struct ima_template_desc *ima_buf_template;
+static struct ima_template_desc *ima_bpf_template;
 
 /**
  * ima_template_has_modsig - Check whether template has modsig-related fields.
@@ -289,6 +291,15 @@ struct ima_template_desc *ima_template_desc_buf(void)
 	}
 	return ima_buf_template;
 }
+struct ima_template_desc *ima_template_desc_bpf(void)
+{
+        if (!ima_bpf_template) {
+                ima_init_template_list();
+                ima_bpf_template =
+                    lookup_template_desc("ima-bpf");
+        }
+        return ima_bpf_template;
+}
 
 int __init ima_init_template(void)
 {
@@ -318,6 +329,19 @@ int __init ima_init_template(void)
 		pr_err("template %s init failed, result: %d\n",
 		       (strlen(template->name) ?
 		       template->name : template->fmt), result);
+	template = ima_template_desc_bpf();
+	if (!template) {
+                pr_err("Failed to get ima-bpf template\n");
+                return -EINVAL;
+        }
+
+	result = template_desc_init_fields(template->fmt,
+                                           &(template->fields),
+                                           &(template->num_fields));
+        if (result < 0)
+                pr_err("template %s init failed, result: %d\n",
+                       (strlen(template->name) ?
+                       template->name : template->fmt), result);
 
 	return result;
 }

@@ -28,6 +28,7 @@
 #include <linux/iversion.h>
 #include <linux/evm.h>
 #include <linux/crash_dump.h>
+#include <linux/bpf.h>
 
 #include "ima.h"
 
@@ -720,6 +721,103 @@ int ima_file_hash(struct file *file, char *buf, size_t buf_size)
 	return __ima_inode_hash(file_inode(file), file, buf, buf_size);
 }
 EXPORT_SYMBOL_GPL(ima_file_hash);
+/* 
+ * bpf_process_measurement - collect/store measurement of BPF 
+ * program
+ */ 
+int bpf_process_measurement(struct bpf_prog *prog, char *id)
+{
+
+	static const char op[] = "ebpf-measure";
+	const char *audit_cause = "ENOMEM";
+	struct ima_template_entry *entry = NULL;
+	struct ima_template_desc *desc;
+	struct ima_iint_cache iint = {};
+	struct ima_event_data event_data = { .iint = &iint,
+			                     .filename = id,
+					     .buf = prog->insnsi,
+					     .buf_len =  sizeof(struct bpf_insn *),
+					   };
+
+	struct ima_max_digest_data hash;
+	struct ima_digest_data *hash_hdr = container_of(&hash.hdr,
+						struct ima_digest_data, hdr);
+	int result = -ENOMEM;
+	int violation = 0;
+	int length; 
+	char digest_hash[IMA_MAX_DIGEST_SIZE];
+	int digest_hash_len = hash_digest_size[ima_hash_algo];
+	struct bpf_insn *insn = prog->insnsi;
+
+
+	memset(&hash, 0, sizeof(hash));
+	
+	iint.ima_hash = hash_hdr;
+	iint.ima_hash->algo = ima_hash_algo;
+	iint.ima_hash->length = hash_digest_size[ima_hash_algo];
+
+	result = ima_calc_buffer_hash(insn, sizeof(struct bpf_insn *), iint.ima_hash);
+	if (result < 0) {
+		audit_cause = "hashing_error";
+		goto err_out;
+	}
+	
+	length = sizeof(hash.hdr) + hash.hdr.length;
+	memcpy(iint.ima_hash, &hash, length);
+	
+	desc = ima_template_desc_bpf();
+	if (!desc) {
+		result = -EINVAL;
+		audit_cause = "ima_template_desc_buf";
+		goto err_out;
+	}
+
+	result = ima_alloc_init_template(&event_data, &entry, desc);
+	if (result < 0) {
+		audit_cause = "alloc_entry";
+		goto err_out;
+	}
+	
+	result = ima_store_template(entry, violation, NULL,
+				    event_data.buf, CONFIG_IMA_MEASURE_PCR_IDX);
+	if (result < 0) {
+		ima_free_template_entry(entry);
+		audit_cause = "store_entry";
+		goto err_out;
+	}
+	return 0;
+err_out:
+	integrity_audit_message(AUDIT_INTEGRITY_PCR, NULL, id, op,
+			    audit_cause, result, 0, result);
+	return result;
+}
+/*
+ * ima_bpf_check - measure and appraise eBPF programs based on policy 
+ * @prog: pointer to BPF program to be measured
+ * @id: function BPF program will attach to  
+ * @attr: BPF program attributes
+ * @uattr: pointer to userspace memory
+ * @uattr_size: size of uattr 
+ *
+ * Returns 0 on success
+ */
+ int ima_bpf_prog_load(struct bpf_prog *prog, char *id, union bpf_attr *attr, bpfptr_t uattr, __u32 uattr_size)
+ {
+
+	int action;
+	
+	/* Check policy */
+	action = ima_bpf_check_policy(prog->type, prog->aux->attach_func_name);
+	if (action < 0)
+		return action;
+
+	/* Process measurement */
+	if (action & IMA_MEASURE) 
+		return bpf_process_measurement(prog, id);
+
+	return 0;
+ }
+EXPORT_SYMBOL(ima_bpf_prog_load);
 
 /**
  * ima_inode_hash - return the stored measurement if the inode has been hashed

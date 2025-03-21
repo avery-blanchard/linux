@@ -19,6 +19,8 @@
 #include <linux/key.h>
 #include <linux/audit.h>
 #include <linux/lsm_hooks.h>
+#include <linux/bpfptr.h>
+#include <linux/bpf.h>
 
 enum evm_ima_xattr_type {
 	IMA_XATTR_DIGEST = 0x01,
@@ -124,7 +126,7 @@ int integrity_kernel_read(struct file *file, loff_t offset,
 extern struct dentry *integrity_dir;
 
 struct modsig;
-
+int ima_bpf_prog_load(struct bpf_prog *prog, char *id, union bpf_attr *attr, bpfptr_t uattr, __u32 uattr_size);
 #ifdef CONFIG_INTEGRITY_SIGNATURE
 
 int integrity_digsig_verify(const unsigned int id, const char *sig, int siglen,
