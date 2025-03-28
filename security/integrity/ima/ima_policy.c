@@ -38,6 +38,9 @@
 #define IMA_GID		0x2000
 #define IMA_EGID	0x4000
 #define IMA_FGROUP	0x8000
+#define IMA_EBPF_HOOKS 	0x1001
+#define IMA_EBPF_PROG_TYPES  0x1002
+#define IMA_EBPF_ATTACH_TYPES  0x1004
 
 #define UNKNOWN		0
 #define MEASURE		0x0001	/* same as IMA_MEASURE */
@@ -61,7 +64,7 @@ atomic_t ima_setxattr_allowed_hash_algorithms;
 enum lsm_rule_types { LSM_OBJ_USER, LSM_OBJ_ROLE, LSM_OBJ_TYPE,
 	LSM_SUBJ_USER, LSM_SUBJ_ROLE, LSM_SUBJ_TYPE
 };
-
+enum ebpf_rule_types { EBPF_HOOK, EBPF_ATTACH_TYPE, EBPF_PROG_TYPE };
 enum policy_types { ORIGINAL_TCB = 1, DEFAULT_TCB };
 
 enum policy_rule_list { IMA_DEFAULT_POLICY = 1, IMA_CUSTOM_POLICY };
@@ -118,6 +121,11 @@ struct ima_rule_entry {
 		char *args_p;	/* audit value */
 		int type;	/* audit type */
 	} lsm[MAX_LSM_RULES];
+	struct {
+		enum bpf_prog_type type;
+		char *hook;
+		enum bpf_attach_type attach_type;
+	} ebpf;
 	char *fsname;
 	struct ima_rule_opt_list *keyrings; /* Measure keys added to these keyrings */
 	struct ima_rule_opt_list *label; /* Measure data grouped under this label */
@@ -1077,7 +1085,8 @@ enum policy_opt {
 	Opt_digest_type,
 	Opt_appraise_type, Opt_appraise_flag, Opt_appraise_algos,
 	Opt_permit_directio, Opt_pcr, Opt_template, Opt_keyrings,
-	Opt_label, Opt_err
+	Opt_label, Opt_err, Opt_ebpf_hooks, Opt_ebpf_attach_type, 
+	Opt_ebpf_prog_type,
 };
 
 static const match_table_t policy_tokens = {
@@ -1126,7 +1135,10 @@ static const match_table_t policy_tokens = {
 	{Opt_template, "template=%s"},
 	{Opt_keyrings, "keyrings=%s"},
 	{Opt_label, "label=%s"},
-	{Opt_err, NULL}
+	{Opt_err, NULL},
+	{Opt_ebpf_hooks, "ebpf_hooks=%s"},
+	{Opt_ebpf_prog_type, "ebpf_prog_type=%s"},
+	{Opt_ebpf_prog_type, "ebpf_attach_type=%s"},
 };
 
 static int ima_lsm_rule_init(struct ima_rule_entry *entry,
@@ -1159,6 +1171,239 @@ static int ima_lsm_rule_init(struct ima_rule_entry *entry,
 	}
 
 	return result;
+}
+static enum bpf_prog_type ima_parse_ebpf_prog_types(substring_t *substr)
+{
+        unsigned int res = 0;
+        int idx;
+        char *token;
+        char *arg = match_strdup(substr);
+        enum bpf_prog_type type = __MAX_BPF_PROG_TYPE;
+	while ((token = strsep(&arg, ",")) != NULL) {
+		if (strcmp(token, "BPF_PROG_TYPE_UNSPEC") == 0)
+                        type = BPF_PROG_TYPE_UNSPEC;
+                if (strcmp(token, "BPF_PROG_TYPE_SOCKET_FILTER") == 0)
+                        type = BPF_PROG_TYPE_SOCKET_FILTER;
+                if (strcmp(token, "BPF_PROG_TYPE_KPROBE") == 0)
+                        type = BPF_PROG_TYPE_KPROBE;
+                if (strcmp(token, "BPF_PROG_TYPE_SCHED_CLS") == 0)
+                        type = BPF_PROG_TYPE_SCHED_CLS;
+                if (strcmp(token, "BPF_PROG_TYPE_SCHED_ACT") == 0)
+                        type = BPF_PROG_TYPE_SCHED_ACT;
+                if (strcmp(token, "BPF_PROG_TYPE_TRACEPOINT") == 0)
+                        type = BPF_PROG_TYPE_TRACEPOINT;
+                if (strcmp(token, "BPF_PROG_TYPE_XDP") == 0)
+                        type = BPF_PROG_TYPE_XDP;
+                if (strcmp(token, "BPF_PROG_TYPE_PERF_EVENT") == 0)
+                        type = BPF_PROG_TYPE_PERF_EVENT;
+                if (strcmp(token, "BPF_PROG_TYPE_CGROUP_SKB") == 0)
+                        type = BPF_PROG_TYPE_CGROUP_SKB;
+                if (strcmp(token, "BPF_PROG_TYPE_CGROUP_SOCK") == 0)
+                        type = BPF_PROG_TYPE_CGROUP_SOCK;
+                if (strcmp(token, "BPF_PROG_TYPE_LWT_IN") == 0)
+                        type = BPF_PROG_TYPE_LWT_IN;
+                if (strcmp(token, "BPF_PROG_TYPE_LWT_OUT") == 0)
+                        type = BPF_PROG_TYPE_LWT_OUT;
+                if (strcmp(token, "BPF_PROG_TYPE_LWT_XMIT") == 0)
+                        type = BPF_PROG_TYPE_LWT_XMIT;
+                if (strcmp(token, "BPF_PROG_TYPE_SOCK_OPS") == 0)
+                        type = BPF_PROG_TYPE_SOCK_OPS;
+                if (strcmp(token, "BPF_PROG_TYPE_SK_SKB") == 0)
+                        type = BPF_PROG_TYPE_SK_SKB;
+                if (strcmp(token, "BPF_PROG_TYPE_CGROUP_DEVICE") == 0)
+                        type = BPF_PROG_TYPE_CGROUP_DEVICE;
+                if (strcmp(token, "BPF_PROG_TYPE_SK_MSG") == 0)
+                        type = BPF_PROG_TYPE_SK_MSG;
+                if (strcmp(token, "BPF_PROG_TYPE_RAW_TRACEPOINT") == 0)
+                        type = BPF_PROG_TYPE_RAW_TRACEPOINT;
+                if (strcmp(token, "BPF_PROG_TYPE_CGROUP_SOCK_ADDR") == 0)
+                        type = BPF_PROG_TYPE_CGROUP_SOCK_ADDR;
+                if (strcmp(token, "BPF_PROG_TYPE_LWT_SEG6LOCAL") == 0)
+                        type = BPF_PROG_TYPE_LWT_SEG6LOCAL;
+                if (strcmp(token, "BPF_PROG_TYPE_LIRC_MODE2") == 0)
+                        type = BPF_PROG_TYPE_LIRC_MODE2;
+                if (strcmp(token, "BPF_PROG_TYPE_SK_REUSEPORT") == 0)
+                        type = BPF_PROG_TYPE_SK_REUSEPORT;
+                if (strcmp(token, "BPF_PROG_TYPE_FLOW_DISSECTOR") == 0)
+                        type = BPF_PROG_TYPE_FLOW_DISSECTOR;
+                if (strcmp(token, "BPF_PROG_TYPE_CGROUP_SYSCTL") == 0)
+                        type = BPF_PROG_TYPE_CGROUP_SYSCTL;
+                if (strcmp(token, "BPF_PROG_TYPE_RAW_TRACEPOINT_WRITABLE") == 0)
+                        type = BPF_PROG_TYPE_RAW_TRACEPOINT_WRITABLE;
+                if (strcmp(token, "BPF_PROG_TYPE_CGROUP_SOCKOPT") == 0)
+                        type = BPF_PROG_TYPE_CGROUP_SOCKOPT;
+                if (strcmp(token, "BPF_PROG_TYPE_TRACING") == 0)
+                        type = BPF_PROG_TYPE_TRACING;
+                if (strcmp(token, "BPF_PROG_TYPE_STRUCT_OPS") == 0)
+                        type = BPF_PROG_TYPE_STRUCT_OPS;
+                if (strcmp(token, "BPF_PROG_TYPE_EXT") == 0)
+                        type = BPF_PROG_TYPE_EXT;
+                if (strcmp(token, "BPF_PROG_TYPE_LSM") == 0)
+                        type = BPF_PROG_TYPE_LSM;
+                if (strcmp(token, "BPF_PROG_TYPE_SK_LOOKUP") == 0)
+                        type = BPF_PROG_TYPE_SK_LOOKUP;
+                if (strcmp(token, "BPF_PROG_TYPE_SYSCALL") == 0)
+                        type = BPF_PROG_TYPE_SYSCALL;
+                if (strcmp(token, "BPF_PROG_TYPE_NETFILTER") == 0)
+                        type = BPF_PROG_TYPE_NETFILTER;
+
+
+                if (type != __MAX_BPF_PROG_TYPE)
+                        res |= (1U << type);
+
+                type = __MAX_BPF_PROG_TYPE;
+        }
+	kfree(arg);
+        return res;
+
+}
+static enum bpf_attach_type ima_parse_ebpf_attach_type(substring_t *substr)
+{
+        unsigned int res = 0;
+        int idx;
+        char *token;
+        char *arg = match_strdup(substr);
+	enum bpf_attach_type type = __MAX_BPF_ATTACH_TYPE;
+        while ((token = strsep(&arg, ",")) != NULL) {
+		if (strcmp(token, "BPF_CGROUP_INET_INGRESS") == 0)
+                        type = BPF_CGROUP_INET_INGRESS;
+                if (strcmp(token, "BPF_CGROUP_INET_EGRESS") == 0)
+                        type = BPF_CGROUP_INET_EGRESS;
+                if (strcmp(token, "BPF_CGROUP_INET_SOCK_CREATE") == 0)
+                        type = BPF_CGROUP_INET_SOCK_CREATE;
+                if (strcmp(token, "BPF_SK_SKB_STREAM_PARSER") == 0)
+                        type = BPF_SK_SKB_STREAM_PARSER;
+                if (strcmp(token, "BPF_SK_SKB_STREAM_VERDICT") == 0)
+                        type = BPF_SK_SKB_STREAM_VERDICT;
+                if (strcmp(token, "BPF_CGROUP_DEVICE") == 0)
+                        type = BPF_CGROUP_DEVICE;
+                if (strcmp(token, "BPF_SK_MSG_VERDICT") == 0)
+                        type = BPF_SK_MSG_VERDICT;
+                if (strcmp(token, "BPF_CGROUP_INET4_BIND") == 0)
+                        type = BPF_CGROUP_INET4_BIND;
+                if (strcmp(token, "BPF_CGROUP_INET6_BIND") == 0)
+                        type = BPF_CGROUP_INET6_BIND;
+                if (strcmp(token, "BPF_CGROUP_INET4_CONNECT") == 0)
+                        type = BPF_CGROUP_INET4_CONNECT;
+                if (strcmp(token, "BPF_CGROUP_INET6_CONNECT") == 0)
+                        type = BPF_CGROUP_INET6_CONNECT;
+                if (strcmp(token, "BPF_CGROUP_INET4_POST_BIND") == 0)
+                        type = BPF_CGROUP_INET4_POST_BIND;
+                if (strcmp(token, "BPF_CGROUP_INET6_POST_BIND") == 0)
+                        type = BPF_CGROUP_INET6_POST_BIND;
+                if (strcmp(token, "BPF_CGROUP_UDP4_SENDMSG") == 0)
+                        type = BPF_CGROUP_UDP4_SENDMSG;
+                if (strcmp(token, "BPF_CGROUP_UDP6_SENDMSG") == 0)
+                        type = BPF_CGROUP_UDP6_SENDMSG;
+                if (strcmp(token, "BPF_LIRC_MODE2") == 0)
+                        type = BPF_LIRC_MODE2;
+                if (strcmp(token, "BPF_FLOW_DISSECTOR") == 0)
+                        type = BPF_FLOW_DISSECTOR;
+                if (strcmp(token, "BPF_CGROUP_SYSCTL") == 0)
+                        type = BPF_CGROUP_SYSCTL;
+                if (strcmp(token, "BPF_CGROUP_UDP4_RECVMSG") == 0)
+                        type = BPF_CGROUP_UDP4_RECVMSG;
+                if (strcmp(token, "BPF_CGROUP_UDP6_RECVMSG") == 0)
+                        type = BPF_CGROUP_UDP6_RECVMSG;
+                if (strcmp(token, "BPF_CGROUP_GETSOCKOPT") == 0)
+                        type = BPF_CGROUP_GETSOCKOPT;
+                if (strcmp(token, "BPF_CGROUP_SETSOCKOPT") == 0)
+                        type = BPF_CGROUP_SETSOCKOPT;
+                if (strcmp(token, "BPF_TRACE_RAW_TP") == 0)
+                        type = BPF_TRACE_RAW_TP;
+                if (strcmp(token, "BPF_TRACE_FENTRY") == 0)
+                        type = BPF_TRACE_FENTRY;
+                if (strcmp(token, "BPF_TRACE_FEXIT") == 0)
+                        type = BPF_TRACE_FEXIT;
+                if (strcmp(token, "BPF_MODIFY_RETURN") == 0)
+                        type = BPF_MODIFY_RETURN;
+                if (strcmp(token, "BPF_LSM_MAC") == 0)
+                        type = BPF_LSM_MAC;
+                if (strcmp(token, "BPF_TRACE_ITER") == 0)
+                        type = BPF_TRACE_ITER;
+                if (strcmp(token, "BPF_CGROUP_INET4_GETPEERNAME") == 0)
+                        type = BPF_CGROUP_INET4_GETPEERNAME;
+                if (strcmp(token, "BPF_CGROUP_INET6_GETPEERNAME") == 0)
+                        type = BPF_CGROUP_INET6_GETPEERNAME;
+                if (strcmp(token, "BPF_CGROUP_INET4_GETSOCKNAME") == 0)
+                        type = BPF_CGROUP_INET4_GETSOCKNAME;
+                if (strcmp(token, "BPF_CGROUP_INET6_GETSOCKNAME") == 0)
+                        type = BPF_CGROUP_INET6_GETSOCKNAME;
+                if (strcmp(token, "BPF_XDP_DEVMAP") == 0)
+                        type = BPF_XDP_DEVMAP;
+                if (strcmp(token, "BPF_CGROUP_INET_SOCK_RELEASE") == 0)
+                        type = BPF_CGROUP_INET_SOCK_RELEASE;
+                if (strcmp(token, "BPF_XDP_CPUMAP") == 0)
+                        type = BPF_XDP_CPUMAP;
+                if (strcmp(token, "BPF_SK_LOOKUP") == 0)
+                        type = BPF_SK_LOOKUP;
+                if (strcmp(token, "BPF_XDP") == 0)
+                        type = BPF_XDP;
+                if (strcmp(token, "BPF_SK_SKB_VERDICT") == 0)
+                        type = BPF_SK_SKB_VERDICT;
+                if (strcmp(token, "BPF_SK_REUSEPORT_SELECT") == 0)
+                        type = BPF_SK_REUSEPORT_SELECT;
+                if (strcmp(token, "BPF_SK_REUSEPORT_SELECT_OR_MIGRATE") == 0)
+                        type = BPF_SK_REUSEPORT_SELECT_OR_MIGRATE;
+                if (strcmp(token, "BPF_PERF_EVENT") == 0)
+                        type = BPF_PERF_EVENT;
+                if (strcmp(token, "BPF_TRACE_KPROBE_MULTI") == 0)
+                        type = BPF_TRACE_KPROBE_MULTI;
+                if (strcmp(token, "BPF_LSM_CGROUP") == 0)
+                        type = BPF_LSM_CGROUP;
+                if (strcmp(token, "BPF_STRUCT_OPS") == 0)
+                        type = BPF_STRUCT_OPS;
+                if (strcmp(token, "BPF_NETFILTER") == 0)
+                        type = BPF_NETFILTER;
+                if (strcmp(token, "BPF_TCX_INGRESS") == 0)
+                        type = BPF_TCX_INGRESS;
+                if (strcmp(token, "BPF_TCX_EGRESS") == 0)
+                        type = BPF_TCX_EGRESS;
+                if (strcmp(token, "BPF_TRACE_UPROBE_MULTI") == 0)
+                        type = BPF_TRACE_UPROBE_MULTI;
+                if (strcmp(token, "BPF_CGROUP_UNIX_CONNECT") == 0)
+                        type = BPF_CGROUP_UNIX_CONNECT;
+                if (strcmp(token, "BPF_CGROUP_UNIX_SENDMSG") == 0)
+                        type = BPF_CGROUP_UNIX_SENDMSG;
+                if (strcmp(token, "BPF_CGROUP_UNIX_RECVMSG") == 0)
+                        type = BPF_CGROUP_UNIX_RECVMSG;
+                if (strcmp(token, "BPF_CGROUP_UNIX_GETPEERNAME") == 0)
+                        type = BPF_CGROUP_UNIX_GETPEERNAME;
+                if (strcmp(token, "BPF_CGROUP_UNIX_GETSOCKNAME") == 0)
+                        type = BPF_CGROUP_UNIX_GETSOCKNAME;
+                if (strcmp(token, "BPF_NETKIT_PRIMARY") == 0)
+                        type = BPF_NETKIT_PRIMARY;
+                if (strcmp(token, "BPF_NETKIT_PEER") == 0)
+                        type = BPF_NETKIT_PEER;
+                if (strcmp(token, "BPF_TRACE_KPROBE_SESSION") == 0)
+                        type = BPF_TRACE_KPROBE_SESSION;
+                if (strcmp(token, "BPF_TRACE_UPROBE_SESSION") == 0)
+                        type = BPF_TRACE_UPROBE_SESSION;
+
+
+                if (type != __MAX_BPF_ATTACH_TYPE)
+                       res  |= (1U << type);
+
+                type = __MAX_BPF_ATTACH_TYPE;
+        }
+	kfree(arg);
+
+        return res;
+}
+
+
+static int ima_ebpf_rule_init(struct ima_rule_entry *entry, substring_t *args, int ebpf_rule) 
+{
+	if (ebpf_rule == EBPF_HOOK) {
+		entry->ebpf.hook = match_strdup(args);
+	} else if (ebpf_rule == EBPF_PROG_TYPE) {
+		entry->ebpf.type =  ima_parse_ebpf_prog_types(args); 
+	} else if (ebpf_rule = EBPF_ATTACH_TYPE) {
+		entry->ebpf.attach_type =  ima_parse_ebpf_attach_type(args);
+	
+	}
+	return 0;
+
 }
 
 static void ima_log_string_op(struct audit_buffer *ab, char *key, char *value,
@@ -1264,7 +1509,7 @@ static bool ima_validate_rule(struct ima_rule_entry *entry)
 	if (((entry->flags & IMA_FUNC) && entry->func == NONE) ||
 	    (!(entry->flags & IMA_FUNC) && entry->func != NONE))
 		return false;
-
+	
 	/*
 	 * Ensure that the hook function is compatible with the other
 	 * components of the rule
@@ -1535,6 +1780,8 @@ static int ima_parse_rule(char *rule, struct ima_rule_entry *entry)
 				entry->func = CRITICAL_DATA;
 			else if (strcmp(args[0].from, "SETXATTR_CHECK") == 0)
 				entry->func = SETXATTR_CHECK;
+			else if (strcmp(args[0].from, "BPF_CHECK") == 0)
+				entry->func = BPF_CHECK;
 			else
 				result = -EINVAL;
 			if (!result)
@@ -1883,6 +2130,20 @@ static int ima_parse_rule(char *rule, struct ima_rule_entry *entry)
 						 &(template_desc->num_fields));
 			entry->template = template_desc;
 			break;
+
+		// TODO(avery)
+		case Opt_ebpf_hooks:
+			ima_log_string(ab, "ebpf_hooks", args[0].from);
+                        result = ima_ebpf_rule_init(entry, args, EBPF_HOOK);
+
+		case Opt_ebpf_prog_type:	
+			ima_log_string(ab, "ebpf_prog_type", args[0].from);
+                        result = ima_ebpf_rule_init(entry, args, EBPF_PROG_TYPE);
+
+		case Opt_ebpf_attach_type:
+			ima_log_string(ab, "ebpf_attach_type", args[0].from);
+                        result = ima_ebpf_rule_init(entry, args, EBPF_ATTACH_TYPE);
+		
 		case Opt_err:
 			ima_log_string(ab, "UNKNOWN", p);
 			result = -EINVAL;
@@ -1969,7 +2230,7 @@ ssize_t ima_parse_add_rule(char *rule)
 void ima_delete_rules(void)
 {
 	struct ima_rule_entry *entry, *tmp;
-
+	
 	temp_ima_appraise = 0;
 	list_for_each_entry_safe(entry, tmp, &ima_temp_rules, list) {
 		list_del(&entry->list);
@@ -2273,6 +2534,23 @@ int ima_policy_show(struct seq_file *m, void *v)
 		seq_puts(m, "digest_type=verity ");
 	if (entry->flags & IMA_PERMIT_DIRECTIO)
 		seq_puts(m, "permit_directio ");
+	
+	if (entry->flags & IMA_EBPF_PROG_TYPES) {
+		seq_puts(m, "ebpf_prog_type= ");
+		seq_puts(m, "");
+	}
+
+        if (entry->flags & IMA_EBPF_ATTACH_TYPES) {
+                seq_puts(m, "ebpf_attach_type= ");
+                seq_puts(m, "");        
+	}
+
+	if (entry->flags & IMA_EBPF_HOOKS) {
+                seq_puts(m, "ebpf_hooks= ");
+                seq_printf(m, entry->ebpf.hook);
+                seq_puts(m, "");
+        }
+	
 	rcu_read_unlock();
 	seq_puts(m, "\n");
 	return 0;
